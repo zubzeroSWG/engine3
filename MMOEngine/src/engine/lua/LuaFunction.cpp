@@ -10,12 +10,38 @@
 #include "Lua.h"
 #include "LuaPanicException.h"
 
+#include <exception>
+
 #ifdef CXX11_COMPILER
 #include <chrono>
 #endif
 
 namespace LuaFunctionNamespace {
 	static Logger luaLogger("LuaFunction", Lua::INFO);
+
+	static String getLuaFunctionContext(const String& object, const String& functionName) {
+		if (!object.isEmpty()) {
+			StringBuffer buffer;
+			buffer << object << ":" << functionName;
+			return buffer.toString();
+		}
+
+		return functionName;
+	}
+
+	static String getLuaErrorMessage(lua_State* L) {
+		const char* message = lua_tostring(L, -1);
+
+		if (message != nullptr) {
+			return String(message);
+		}
+
+		String errorMessage = "[non-string lua error type=";
+		errorMessage = errorMessage.concat(lua_typename(L, lua_type(L, -1)));
+		errorMessage = errorMessage.concat("]");
+
+		return errorMessage;
+	}
 }
 
 using namespace LuaFunctionNamespace;
@@ -166,31 +192,36 @@ lua_State* LuaFunction::callFunction() {
 		TaskWorkerThread* worker = thread ? thread->asTaskWorkerThread() : nullptr;
 
 		if (worker) {
-			if (object.length()) {
-				String fullName = object + ":" + functionName;
+			String fullName = getLuaFunctionContext(object, functionName);
 
 #ifdef CXX11_COMPILER
-				worker->addLuaTaskStats(std::move(fullName), elapsedTime);
+			worker->addLuaTaskStats(std::move(fullName), elapsedTime);
 #else
-				worker->addLuaTaskStats(fullName, elapsedTime);
+			worker->addLuaTaskStats(fullName, elapsedTime);
 #endif
-			} else {
-				worker->addLuaTaskStats(functionName, elapsedTime);
-			}
 		}
 #endif
 
 		if (result != 0) {
-			luaLogger.error() << "Error running function " << getFunctionName() << " " << String(lua_tostring(getLuaState(), -1));
+			luaLogger.error() << "Error running function " << getLuaFunctionContext(object, functionName) << " " << getLuaErrorMessage(getLuaState());
 
 			return nullptr;
 		}
 	} catch (const LuaPanicException& e) {
-		luaLogger.error() << "LuaPanicException running function " << getFunctionName() << " " << String(lua_tostring(getLuaState(), -1));
+		luaLogger.error() << "LuaPanicException running function " << getLuaFunctionContext(object, functionName) << " " << getLuaErrorMessage(getLuaState());
+
+		return nullptr;
+	} catch (const Exception& e) {
+		luaLogger.error() << "Exception running function " << getLuaFunctionContext(object, functionName) << " " << e.getMessage();
+		return nullptr;
+	} catch (const std::exception& e) {
+		luaLogger.error() << "std::exception running function " << getLuaFunctionContext(object, functionName) << " " << e.what();
+		return nullptr;
+	} catch (...) {
+		luaLogger.error() << "Unknown exception running function " << getLuaFunctionContext(object, functionName);
 
 		return nullptr;
 	}
 
 	return getLuaState();
 }
-

@@ -423,8 +423,7 @@ using namespace sys::lang;
 //forces the hash code to be calculated at compile time of a const string
 #define STRING_HASHCODE(a) std::integral_constant<uint32, String::hashCode(a)>::value
 
-constexpr uint32 operator "" _hashCode(char const* str, std::size_t s) {
+constexpr uint32 operator""_hashCode(char const* str, std::size_t s) {
 	return String::hashCode(str);
 }
-
 

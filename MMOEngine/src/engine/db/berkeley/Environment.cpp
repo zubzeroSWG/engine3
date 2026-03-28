@@ -31,6 +31,15 @@ EnvironmentMutex Environment::guard;
 namespace BDBNS {
 	static Logger logger("BerkeleyEnvironment");
 
+	[[noreturn]] void fatalRunRecovery(const char* operation, const String& directory, int ret) {
+		StringBuffer msg;
+		msg << "Berkeley DB entered panic state during " << operation
+			<< " in environment '" << directory << "' with "
+			<< db_strerror(ret) << " (" << ret << ")."
+			<< " Aborting so the runtime supervisor can restart core3 against a recovered environment.";
+		logger.fatal(msg);
+	}
+
 	void thread_id_bdb (DB_ENV *env, pid_t *pid, db_threadid_t *tid) {
 		if (pid) {
 			*pid = getpid();
@@ -195,6 +204,10 @@ Transaction* Environment::beginTransaction(Transaction* parent, const Transactio
 	int res = databaseEnvironment->txn_begin(databaseEnvironment, parentTransaction, newTransaction->getDBTXNPTR(), config.getFlags() /*| DB_TXN_NOWAIT*/);
 
 	if (res != 0) {
+		if (res == DB_RUNRECOVERY) {
+			BDBNS::fatalRunRecovery("txn_begin", directory, res);
+		}
+
 		delete newTransaction;
     		throw DatabaseException("unable to begin transaction with ret code " + String::valueOf(res));
 	}
